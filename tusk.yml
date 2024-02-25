@@ -1,0 +1,479 @@
+options:
+  SERVICE_NAME:
+    usage: The name of the service
+    private: true
+    default: "hmi"
+  # APP_VERSION:
+  #   usage: The current app version
+  #   private: true
+  #   default: $(cat ./version)
+  REGISTRY_NAME_DEV:
+    usage: Registry and port
+    private: true
+    default: "seil-nexus-rnd.solaredge.com:27101"
+  REGISTRY_NAME:
+    usage: Registry and port
+    private: true
+    default: "seil-nexus-rnd.solaredge.com:27101"
+  MACHINE_NAME:
+    private: true
+    default: "arm64v8"
+  DOCKER-FOLDER:
+    private: true
+    default: "service/docker"
+
+  DOCKER-DEV-LOCALLY-FOLDER:
+    usage: Folder that contain docker compose and Dockerfile for working locally
+    private: true
+    default: "${DOCKER-FOLDER}/dev-locally"
+
+  DOCKER-DEV-DEVICE-FOLDER:
+    usage: Folder that contain docker compose and Dockerfile for building the image and working on the device
+    private: true
+    default: "${DOCKER-FOLDER}/dev-device"
+
+  #DOCKER-COMPOSE-DEVELOPER:
+    #usage: docker compose yml file that is dedicated to developing
+    #private: true
+    #default: "${DOCKER-FOLDER}/dev-locally/docker-compose.yml"
+  # Release Path
+  DOCKER-RELEASE-DEVICE-FOLDER:
+    private: true
+    default: "${DOCKER-FOLDER}/release-device"
+
+  DOCKER-RELEASE-LOCALLY-FOLDER:
+    private: true
+    default: "${DOCKER-FOLDER}/release-device"
+
+  #DOCKER-FILE-RELEASE-FAST:
+    #usage: docker compose yml file that is dedicated to developing
+    #private: true
+    #default: "${DOCKER-FOLDER}/docker-compose-developer.yml"
+  DOCKER-FILE-DEVELOPER:
+    usage: docker compose yml file that is dedicated to developing
+    private: true
+    default: "${DOCKER-FOLDER}/"
+  SERVICE_VERSION:
+    usage: get service version
+    private: true
+    default:
+      command: cat version
+
+tasks:
+  # --- Make Commands --- {{{
+  # Make Service, AMD64 and ARM64 {{{
+  make-build-amd64:
+    usage: build the service for AMD64
+    run:
+      - command:
+          exec: |
+            go build -o=./build/target/amd64/${SERVICE_NAME} -ldflags="-X 'main.Version=${APP_VERSION}' -s -w " ./cmd/${SERVICE_NAME}
+  make-build-arm64:
+    usage: build the service for arm64
+    run:
+      - command:
+          exec: |
+            APP_VERSION=$(cat ./version)
+            GOOS=linux GOARCH=arm64 GOARM=7 go build -o=./build/target/arm64/${SERVICE_NAME} -ldflags="-X 'pkg/utils/const/const_variable.SERVICE_VERSION=${APP_VERSION}' -s -w" ./cmd/${SERVICE_NAME}
+
+  #}}}
+
+  # Make CLI application, amd64{{{
+  make-cli-amd64-build:
+    usage: build the cli application for arm64
+    run:
+      - command:
+          exec: |
+            go build -o=./build/target/amd64/cli  cmd/cli/cmd/edgehub/edge.go
+
+  make-cli-amd64-install:
+    usage: build the cli application for arm64
+    run:
+      - command:
+          exec: |
+            go install cmd/cli/cmd/edgehub/edge.go
+
+  make-cli-arm64-build:
+    usage: build the cli application for arm64
+    run:
+      - command:
+          exec: |
+            GOOS=linux GOARCH=arm64 GOARM=7 go build -o=./build/target/arm64/cli -ldflags="-s -w" ./cmd/cli
+  #}}}
+
+  # Make configure, set/drop configuring before compile{{{
+  make-configure-local-metadata-set:
+    usage: Configure Go to work with the local metadata instand of the remote package 
+    description: |
+      Example: tusk make-configure-metadata --metadata-path "$HOME/projects/utility/edge-hub/utility-edge-metadata/build/go/utility/source"
+    options:
+      metadata-path:
+        usage: Relace metadata for local dependenicies 
+        required: true
+        environment: METADATA_PATH
+    run:
+      - command:
+          exec: |
+            if 
+            go mod edit -replace gitlab.solaredge.com/utility/edge-hub/utility-edge-metadata.git=${metadata-path}
+
+  make-configure-local-metadata-drop:
+    usage: Disable local metadata configution
+    run:
+      - command:
+          exec: |
+            go mod edit -dropreplace gitlab.solaredge.com/utility/edge-hub/utility-edge-metadata.git
+        #}}}
+            
+  # }}}
+ 
+  # ---- Builds commands ----  {{{Docker builds commands, for ARM64 and AMD64
+  # --- Develop Environments Commands - For testing your service locally {{{
+  # ------  Docker develop commands ------{{{
+  # {{{------------ Docker develop locally ------------ 
+  docker-dev-locally-up:
+    usage: Start the services that is describes in the docker-compose-developer.yml
+    options:
+      service-name:
+        usage: Container name to start
+        short: c
+        default: ""
+    run:
+      - when:
+          not-exists: target
+        task:
+          name: make-build-amd64
+      - command:
+          exec: docker compose -f "${DOCKER-DEV-LOCALLY-FOLDER}/docker-compose.yml" up -d ${service-name}
+
+  docker-dev-locally-down:
+    usage: Stop the services that is describes in the ${DOCKER-COMPOSE-DEVELOPER}
+    run:
+      - command:
+          exec: docker compose -f "${DOCKER-DEV-LOCALLY-FOLDER}/docker-compose.yml" down
+
+  docker-dev-locally-attach:
+    usage: Attach to the main service container
+    options:
+      service-name:
+        usage: Container name to attach
+        short: c
+        default: "${SERVICE_NAME}"
+
+    run:
+      - command:
+          exec: docker compose -f "${DOCKER-DEV-LOCALLY-FOLDER}/docker-compose.yml" exec "${service-name}" tmux attach -t service
+
+  docker-dev-locally-build:
+    usage: Build docker image for AMD64 environment, For local development
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      MACHINE_NAME:
+        usage: Machine name
+        private: true
+        default: amd64
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+    run:
+
+      - command:
+          exec: |
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --file  "${DOCKER-DEV-LOCALLY-FOLDER}/Dockerfile" \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY-NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+
+  docker-login:
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+    run:
+      - command:
+          exec: |
+            docker login ${REGISTRY-NAME}
+
+
+  docker-dev-locally-build-fast:
+    usage: Build docker image for AMD64 environment, For local development
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      MACHINE_NAME:
+        usage: Machine name
+        private: true
+        default: amd64
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:dev
+    run:
+      - command:
+          exec: |
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --file  "${DOCKER-DEV-LOCALLY-FOLDER}/Dockerfile.fast" \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY-NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+
+  # }}}------------ Docker develop locally ------------ 
+  
+  # ------------ Docker develop on the device ------------ {{{
+  docker-dev-device-build:
+    usage: Build docker image for Device based ARM64 environment
+    options:
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}-dev
+      no-cache:
+        type: bool
+        usage: Don't use cache while building
+        default: false
+      __no-cache:
+        private: true
+        default:
+          - when:
+              equal: {no-cache: false}
+            value: ""
+          - when:
+              equal: {no-cache: true}
+            value: "--no-cache"
+    run:
+      - command:
+          exec: |
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --file  "${DOCKER-DEV-DEVICE-FOLDER}/Dockerfile" \
+            ${__no-cache} \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY_NAME_DEV}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+
+  docker-dev-device-push:
+    options:
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:dev
+    run:
+      - command:
+          exec: |
+            docker push "${REGISTRY_NAME_DEV}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}"
+
+  # ------------ Docker develop on the device ------------ }}}
+  
+  # ------  Docker develop commands ------}}}
+  
+  # ------  Docker release commands ------{{{
+  docker-release-device-build:
+    # Need to add the option if loclly or on device
+    usage: Build release image for ARM64 environment
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+      CONFIGURATION:
+        usage: Add a configuration file name exp. hmi-hlc-rpi4
+        short: C
+        default: ${SERVICE_NAME}
+      MACHINE_NAME:
+        usage: Machine name
+        short: M
+        default: arm64v8
+      no-cache:
+        type: bool
+        usage: Don't use cache while building
+        default: false
+      __no-cache:
+        private: true
+        default:
+          - when:
+              equal: {no-cache: false}
+            value: ""
+          - when:
+              equal: {no-cache: true}
+            value: "--no-cache"
+    run:
+      - command:
+          exec: |
+            tusk make-build-arm64 && \
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --build-arg CONFIGURATION_FILE=${CONFIGURATION} \
+            --file  "${DOCKER-RELEASE-DEVICE-FOLDER}/Dockerfile.manual_build" \
+            ${__no-cache} \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY-NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+
+  docker-release-device-build-fast:
+    # Need to add the option if locally or on device
+    usage: Build release image for ARM64 environment. Wouldn't build the application for you
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      #MACHINE_NAME:
+        #usage: Machine name
+        #private: true
+        #default: arm64v8
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+      no-cache:
+        type: bool
+        usage: Don't use cache while building
+        default: false
+      __no-cache:
+        private: true
+        default:
+          - when:
+              equal: {no-cache: false}
+            value: ""
+          - when:
+              equal: {no-cache: true}
+            value: "--no-cache"
+
+
+  docker-release-device-push-fast:
+    # Need to add the option if loclly or on device
+    usage: Build release image for ARM64 environment. Wouldn't build the application for you
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      #MACHINE_NAME:
+        #usage: Machine name
+        #private: true
+        #default: arm64v8
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+
+      DOCKER-IMAGE-NAME-POSIX-DEV:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+
+    run:
+      - command:
+          exec: |
+            docker push \
+            "${REGISTRY_NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}"
+
+  docker-release-locally-build:
+    # Need to add the option if locally or on device
+    usage: Build release image for AMD64 environment
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      MACHINE_NAME:
+        usage: Machine name
+        private: true
+        default: amd64
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+
+    run:
+      - command:
+          exec: |
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --file  "${DOCKER-RELEASE-LOCALLY-FOLDER}/Dockerfile" \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY-NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+  
+  docker-release-locally-build-fast:
+    # Need to add the option if locally or on device
+    usage: Build release image for AMD64 environment. Wouldn't build the application for you
+    options:
+      REGISTRY-NAME:
+        usage: Add custom registry name to the image name
+        short: r
+        default: ${REGISTRY_NAME}
+
+      DOCKER-IMAGE-NAME-POSIX:
+        usage: Build the final docker image name
+        private: true
+        default: service/${SERVICE_NAME}:${SERVICE_VERSION}
+    run:
+      - command:
+          exec: |
+            docker buildx build \
+            --build-arg SERVICE_NAME=${SERVICE_NAME} \
+            --build-arg SERVICE_VERSION=${SERVICE_VERSION} \
+            --file  "${DOCKER-RELEASE-LOCALLY-FOLDER}/Dockerfile.fast" \
+            --progress plain \
+            --load \
+            --tag "${REGISTRY-NAME}/sedg/${MACHINE_NAME}/${DOCKER-IMAGE-NAME-POSIX}" .
+
+  balena-deploy-develop:
+    options:
+      fleet:
+        short: f
+        default: OhadS
+    run:
+      - command:
+          exec: |
+            sed -E -i "s/(^version:\s?)[0-9.]+/\1$(cat ../../version)/" balena.yml
+            cat balena.yml | grep version
+            balena deploy ${fleet} --debug
+            git checkout balena.yml
+          dir: ${DOCKER-DEV-DEVICE-FOLDER}
+
+  balena-deploy-release:
+    options:
+      fleet:
+        short: f
+        default: OhadS
+    run:
+      - command:
+          exec: |
+            sed -E -i "s/(^version:\s?)[0-9.]+/\1$(cat ../../version)/" balena.yml
+            cat balena.yml | grep version
+            balena deploy ${fleet} --debug
+            git checkout balena.yml
+          dir: ${DOCKER-RELEASE-DEVICE-FOLDER}
+
+  # }}}

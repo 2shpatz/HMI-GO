@@ -1,0 +1,61 @@
+version: "2.3"
+volumes:
+  resin-data:
+services:
+  mqtt:
+    image: arm64v8/eclipse-mosquitto:1.6
+    ports:
+      - 1883:1883
+    restart: always
+
+  edge-hub:
+    ports:
+      - 8883:8883
+      - 8080:8080
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/edge-hub:1.7.1
+    depends_on:
+      - mqtt
+    restart: always
+    volumes:
+      - "resin-data:/data"
+    environment:
+      MQTT_BROKER: "mqtt:1883"
+    tty: true
+    stdin_open: true
+    privileged: true
+
+  hmi:
+    # build: .
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/dev/hmi:2.1.5-dev
+    depends_on:
+      - mqtt
+      
+    devices:
+      - "/dev/gpiomem:/dev/gpiomem"
+    labels:
+      io.balena.features.sysfs: '1'
+      io.balena.features.supervisor-api: '1'
+    environment:
+      - SERVICE_NAME=hmi
+      - BROKER_ADDRESS=mqtt://0.0.0.0:1883
+      - SERVICE_HTTP_PORT=61665
+    network_mode: "host"
+    restart: always
+    privileged: true
+
+  network-manager:
+    image: 'seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/network-manager:2.2.5'
+    labels:
+      io.balena.features.dbus: '1'
+    restart: always
+    depends_on:
+      - mqtt
+    volumes:
+      - "resin-data:/data"
+    privileged: true
+    environment:
+      DISPLAY: ':0'
+      SERVICE_NAME: network-manager
+      BROKER_ADDRESS: 'mqtt://0.0.0.0:1883'
+      DBUS_SYSTEM_BUS_ADDRESS: 'unix:path=/host/run/dbus/system_bus_socket'
+    network_mode: host

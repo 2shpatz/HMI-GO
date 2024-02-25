@@ -1,0 +1,46 @@
+hardware:
+    interface:
+        gpios:
+            RS485_termination_A:
+                alias: RS485_TERMINATION_A
+                bcm: 12
+                chipset: 5
+                direction: OUT
+                initial_state: 0
+                type: DIGITAL
+            RS485_termination_B:
+                alias: RS485_TERMINATION_B
+                bcm: 13
+                chipset: 5
+                direction: OUT
+                initial_state: 0
+                type: DIGITAL
+        leds:
+            cloud:
+                alias: CLOUD
+                gpio_bcm: 10
+                initial_state: "OFF"
+                os_path: /sys/class/leds/Green_2
+            local_network:
+                alias: LOCAL_NETWORK
+                gpio_bcm: 27
+                initial_state: "OFF"
+                os_path: /sys/class/leds/Green_1
+service:
+    apis:
+        supervisor:
+            address: http://127.0.0.1:48484/v2/local/device
+    broker:
+        address: mqtt:1883
+    logs:
+        level: DEBUG
+    rpc:
+        http_port: 61665
+timers:
+    led_overrides:
+        open_ap: 15
+    led_states:
+        blink_down: 1000
+        blink_up: 1000
+        flick_down: 125
+        flick_up: 125

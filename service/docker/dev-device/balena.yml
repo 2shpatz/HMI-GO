@@ -1,0 +1,14 @@
+name: hmi
+type: sw.application
+description: >-
+  hmi service - Testing
+data:
+  defaultDeviceType: raspberrypi4-64
+  supportedDeviceTypes:
+    - raspberry-pi
+    - raspberry-pi2
+    - raspberrypi3
+    - raspberrypi4-64
+    - fincm3
+    - intel-nuc
+version: 2.2.2-dev

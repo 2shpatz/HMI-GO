@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+FROM --platform=linux/arm64  balenalib/aarch64-debian:bookworm
+
+ARG ARCITECTURE="arm64"
+ARG SERVICE_NAME="hmi"
+ARG SERVICE_VERSION="0.0.0"
+ARG CONFIGURATION_FILE="hmi"
+ENV CONFIGURATION_FILE=${CONFIGURATION_FILE}
+ENV CONFIGURATION_DIR="./config"
+# Set destination for COPY
+WORKDIR /usr/src/${SERVICE_NAME}
+COPY ./service/config/config_files/${CONFIGURATION_FILE}.yaml ${CONFIGURATION_DIR}/${CONFIGURATION_FILE}.yaml
+COPY ./build/target/${ARCITECTURE}/${SERVICE_NAME} ./
+
+# temporary rpc patch 
+COPY ./rpc ./rpc
+
+# Verification the file has been transfer
+RUN ls
+RUN ls -la /usr/src/${SERVICE_NAME}/${SERVICE_NAME}
+
+CMD [ "sh", "-c", "/usr/src/hmi/hmi" ]
+# CMD [ "sh" ]

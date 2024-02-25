@@ -1,0 +1,179 @@
+= HMI configuration file
+For each LC revision there should be a unique configuration file 
+that defines its Hardware interfaces and other service configurations
+
+== Config File
+
+The developer can choose a configuration file from the existing revisions and update the fields if needed.
+When releasing a new revision with new architecture or interfaces a new configuration file should be created.
+
+Note: Pay attention to keep the right indentations for the file
+
+=== Create a new configuration file with template
+run from the main directory:
+----
+go run service/config/write_config_file.go
+----
+this will create a new hmi.yaml template file (in service/config/hmi.yaml) change its name, move it to the "config_files" directory and push it to the repo. 
+Set the hardware interfaces and update the settings as needed.
+
+=== HMI config file example
+----
+hardware:
+    interface:
+        buttons:
+            main_button:
+                alias: MAIN_BUTTON
+                gpio_bcm: 17
+                press_timers:
+                    long: 10
+                    short: 4
+        gpios:
+            generator:
+                alias: GENERATOR
+                direction: IN
+                gpio_bcm: 4
+                initial_state: 0
+                os_path: /sys/class/gpio/gpio4/
+                type: DIGITAL
+        leds:
+            cloud:
+                alias: CLOUD
+                gpio_bcm: 10
+                initial_state: "OFF"
+                os_path: /sys/class/leds/gpio10/
+            local_network:
+                alias: LOCAL_NETWORK
+                gpio_bcm: 27
+                initial_state: "OFF"
+                os_path: /sys/class/leds/gpio27/
+            power:
+                alias: POWER
+                gpio_bcm: 22
+                initial_state: BLINK
+                os_path: /sys/class/leds/gpio22/
+service:
+    apis:
+        supervisor:
+            address: http://127.0.0.1:48484/v2/local/device
+    broker:
+        address: mqtt://0.0.0.0:1883
+    logs:
+        level: DEBUG
+    rpc:
+        http_port: 61665
+timers:
+    led_overrides:
+        open_ap: 15
+    led_states:
+        blink_down: 1000
+        blink_up: 1000
+        flick_down: 125
+        flick_up: 125
+
+----
+
+=== Hardware interfaces
+
+Add/Remove interfaces as needed
+
+[Note]
+====
+Make sure to to add the balena config.txt file this line for each gpio-led:
+"gpio-led,label=gpio<No.>,gpio=<No.>,trigger=timer"
+<No.> = BCM number
+====
+
+==== interface
+
+===== LEDs
+----
+<led_name>: // choose a relevant name
+    alias: CLOUD // Name from the metadata
+    gpio_bcm: 10 // BCM number
+    initial_state: "OFF" // initial state for the LED, state name is from the metadata ("ON", "OFF", BLINK, FLICK) 
+    os_path: /sys/class/leds/gpio10/ //path in the OS to the File Descriptor
+----
+===== Buttons
+----
+<button_name>: // choose a relevant name
+    alias: MAIN_BUTTON // Name from the metadata
+    gpio_bcm: 17 // BCM number
+    press_timers: // defines the press duration in seconds to perform the press type functionalities
+        long: 10    
+        short: 4
+----
+
+===== GPIOs
+
+----
+<gpio_name>: // choose a relevant name
+    alias: GENERATOR // Name from the metadata
+    direction: IN // signal direction from the metadata
+    gpio_bcm: 4 // BCM number
+    initial_state: 0 // initial state for the GPIO, state name is from the metadata (irrelevant for IN direction GPIOs)
+    os_path: /sys/class/gpio/gpio4/
+    type: DIGITAL // signal type from the metadata
+----
+
+==== LC Type
+Different devices providers interact differently with hardware interfaces.
+The user should choose the right device to work with 
+
+current options: raspberrypi, compulab
+
+=== Service configurations
+
+==== APIs
+List of APIs 
+
+----
+apis:
+    <api_name>:
+        address: http://127.0.0.1:48484/v2/local/device 
+        api_key: <your_api_key> // optional, developer can provide own API key for testing
+----
+
+==== Broker
+
+----
+broker:
+    address: mqtt://0.0.0.0:1883
+----
+
+==== logs
+
+----
+logs:
+    level: DEBUG
+    
+----
+
+==== CPP Proxy (RPC)
+
+----
+rpc:
+    http_port: 61665
+----
+
+=== Timers configurations
+
+----
+led_overrides:
+    open_ap: 15 // override duration for the corresponding LED to be override on "Open AP" case
+led_states:
+    blink_down: 1000 // time for a LED to be "Off" on Blink state
+    blink_up: 1000 // time for a LED to be "On" on Blink state
+    flick_down: 125 // time for a LED to be "Off" on Flick state
+    flick_up: 125 // time for a LED to be "On" on Flick state
+----
+
+== Building the Service 
+
+----
+tusk docker-release-device-build -C <config_file_name> -M <machine_type>
+----
+example:
+----
+tusk docker-release-device-build -C hmi-cni-compulab -M raspberrypi4-64
+----

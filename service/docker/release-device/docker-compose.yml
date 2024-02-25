@@ -1,0 +1,103 @@
+version: "2.4"
+volumes:
+  resin-data:
+  certs-data:
+  secret-data:
+  shared-data:
+  static-data:
+
+services:
+  mqtt:
+    image: arm64v8/eclipse-mosquitto:1.6
+    ports:
+      - 1883:1883
+    restart: always
+
+  edge-hub:
+    ports:
+      - 8883:8883
+      - 8080:8080
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/edge-hub:1.8.0
+    depends_on:
+      - mqtt
+    restart: always
+    volumes:
+      - "resin-data:/data"
+      - "shared-data:/shared_data/configs"
+      - "certs-data:/data/certs/mtls_certs"
+      - "static-data:/static_data/certs"
+    environment:
+      MQTT_BROKER: "mqtt:1883"
+      PRODUCT_NAME: "resi-local"
+      PRODUCT_TYPE: 23
+      SW_RELEASE_VERSION: "${RELEASE_VERSION}"
+    tty: true
+    stdin_open: true
+    privileged: true
+    labels:
+      sedg.version: ${RELEASE_VERSION}
+      io.resin.features.supervisor-api: "1"
+
+  hmi:
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/hmi:2.2.1
+    depends_on:
+      - mqtt
+    labels:
+      io.balena.features.sysfs: '1'
+      io.balena.features.supervisor-api: '1'
+    environment:
+      SERVICE_NAME: "hmi"
+      BROKER_ADDRESS: "mqtt://0.0.0.0:1883"
+    restart: always
+    privileged: true
+    network_mode: host
+
+  network-manager:
+    image: 'seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/network-manager:2.3.1'
+    labels:
+      io.balena.features.dbus: '1'
+    restart: always
+    depends_on:
+      - mqtt
+      - hmi
+    volumes:
+      - "resin-data:/data"
+    privileged: true
+    environment:
+      DISPLAY: ':0'
+      SERVICE_NAME: network-manager
+      BROKER_ADDRESS: 'mqtt://0.0.0.0:1883'
+      DBUS_SYSTEM_BUS_ADDRESS: 'unix:path=/host/run/dbus/system_bus_socket'
+      LC_AP_ENABLE: false
+    network_mode: host
+
+  certify:
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/certify-service:1.0.5
+    depends_on:
+      - mqtt
+    restart: always
+    volumes:
+      - "certs-data:/data/certs/mtls_certs"
+      - "shared-data:/shared_data/configs"
+      - "secret-data:/secret_data/configs/secrets"
+      - "static-data:/static_data/certs"
+    environment:
+      MQTT_BROKER: "mqtt:1883"
+  
+  ate-service:
+    image: seil-nexus-rnd.solaredge.com:27101/sedg/raspberrypi4-64/service/ate-service:1.0.6
+    
+    labels:
+      io.balena.features.sysfs: '1'
+    devices:
+      - "/dev/gpiomem:/dev/gpiomem"
+      - "/dev/ttyS0:/dev/ttyS0"
+      - "/dev/ttyAMA1:/dev/ttyAMA1"
+    volumes:
+      - shared-data:/shared_data/configs/
+      - secret-data:/secret_data/configs/secrets/
+    ports:
+       - 7002:7002
+       - 51234:51234
+       - 51235:51235
+    restart: on-failure
